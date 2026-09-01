@@ -1,0 +1,15 @@
+{
+  "name": "sakshisense-lsl-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bridge.mjs",
+    "check": "node --check bridge.mjs"
+  },
+  "dependencies": {
+    "@neurodevs/node-lsl": "^20.0.0",
+    "node-labstreaminglayer": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}

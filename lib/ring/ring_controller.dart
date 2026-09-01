@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:universal_ble/universal_ble.dart';
@@ -41,7 +42,7 @@ class RingController extends ChangeNotifier {
     });
   }
 
-  final RingSampleHandler? onSample;
+  RingSampleHandler? onSample;
   final devices = <RingDevice>[];
   final ppg = <PpgSample>[];
   final imu = <ImuSample>[];
@@ -53,6 +54,12 @@ class RingController extends ChangeNotifier {
   bool isConnecting = false;
   String status = 'Ring disconnected';
   int packets = 0;
+  int ppgPackets = 0;
+  int imuPackets = 0;
+  int audioPackets = 0;
+  DateTime? lastPpgAt;
+  DateTime? lastImuAt;
+  DateTime? lastAudioAt;
   Timer? _scanTimer;
   Timer? _uiTimer;
   bool _dirty = false;
@@ -62,6 +69,55 @@ class RingController extends ChangeNotifier {
   int? _deviceToHostOffsetUs;
 
   bool get isConnected => connectedDevice != null;
+
+  bool streamAlive(DateTime? timestamp) =>
+      timestamp != null && DateTime.now().difference(timestamp).inSeconds < 2;
+
+  double get onboardSoundLevelDb {
+    final rms = audioFeatures.isEmpty ? 0 : audioFeatures.last.rms;
+    return rms <= 0 ? -96 : 20 * math.log(rms / 32768.0) / math.ln10;
+  }
+
+  String get onboardSoundClass {
+    final db = onboardSoundLevelDb;
+    return db < -55
+        ? 'Quiet'
+        : db < -35
+            ? 'Ambient'
+            : db < -18
+                ? 'Loud'
+                : 'Very loud';
+  }
+
+  double get motionLevel {
+    if (imu.isEmpty) return 0;
+    final recent = imu.skip(math.max(0, imu.length - 50));
+    var sum = 0.0;
+    var count = 0;
+    for (final sample in recent) {
+      final x = sample.ax * 0.000061;
+      final y = sample.ay * 0.000061;
+      final z = sample.az * 0.000061;
+      final dynamicG = math.max(
+        0.0,
+        (math.sqrt(x * x + y * y + z * z) - 1).abs(),
+      );
+      sum += dynamicG * dynamicG;
+      count++;
+    }
+    return count == 0 ? 0 : math.sqrt(sum / count);
+  }
+
+  String get activity {
+    final motion = motionLevel;
+    return motion < 0.035
+        ? 'Still'
+        : motion < 0.12
+            ? 'Light movement'
+            : motion < 0.35
+                ? 'Active'
+                : 'High motion';
+  }
 
   Future<void> scan() async {
     if (isScanning) {
@@ -79,7 +135,18 @@ class RingController extends ChangeNotifier {
     UniversalBle.onScanResult = (device) {
       if (!isScanning || session != _scanSession) return;
       final result = RingDevice(device);
-      final index = devices.indexWhere((item) => item.id == result.id);
+      final resultId = _canonicalBleId(result.id);
+      var index = devices.indexWhere(
+        (item) => _canonicalBleId(item.id) == resultId,
+      );
+      if (index < 0 &&
+          !kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.windows &&
+          _canonicalBleName(result.name) == 'sakshiring') {
+        index = devices.indexWhere(
+          (item) => _canonicalBleName(item.name) == 'sakshiring',
+        );
+      }
       index < 0 ? devices.add(result) : devices[index] = result;
       notifyListeners();
     };
@@ -89,14 +156,22 @@ class RingController extends ChangeNotifier {
       );
       if (kIsWeb) {
         await Future<void>.delayed(const Duration(milliseconds: 100));
-        if (devices.isNotEmpty) await connect(devices.first);
-        await _finishScan();
+        if (devices.isNotEmpty) {
+          isScanning = false;
+          UniversalBle.onScanResult = null;
+          await connect(devices.first);
+          return;
+        }
+        isScanning = false;
+        UniversalBle.onScanResult = null;
+        status = 'Bluetooth chooser closed without selecting SakshiRing';
+        notifyListeners();
       } else {
         _scanTimer = Timer(const Duration(seconds: 10), _finishScan);
       }
     } catch (error) {
       isScanning = false;
-      status = 'Ring scan failed: $error';
+      status = _friendlyScanError(error);
       notifyListeners();
     }
   }
@@ -113,58 +188,92 @@ class RingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  String _friendlyScanError(Object error) {
+    final detail = error.toString();
+    if (kIsWeb) {
+      final lower = detail.toLowerCase();
+      if (lower.contains('notfounderror') || lower.contains('cancel')) {
+        return 'Bluetooth chooser cancelled — scan again and select SakshiRing';
+      }
+      return 'Web Bluetooth scan failed. Use this HTTPS page in Chrome or '
+          'Edge and allow Bluetooth access. ($detail)';
+    }
+    return 'Ring scan failed: $detail';
+  }
+
   Future<void> connect(RingDevice result) async {
     await _finishScan();
     _subscriptions.clear();
     isConnecting = true;
     status = 'Connecting ring…';
     notifyListeners();
-    try {
-      await UniversalBle.connect(
-        result.id,
-        timeout: const Duration(seconds: 15),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      final services = await UniversalBle.discoverServices(
-        result.id,
-        timeout: const Duration(seconds: 10),
-      );
-      final service = services.firstWhere(
-        (item) => item.uuid.toLowerCase() == ringServiceUuid,
-      );
-      for (final characteristic in service.characteristics) {
-        final uuid = characteristic.uuid.toLowerCase();
-        if (uuid != ringPpgUuid &&
-            uuid != ringImuUuid &&
-            uuid != ringAudioUuid) {
-          continue;
-        }
-        await UniversalBle.subscribeNotifications(
-          result.id,
-          service.uuid,
-          characteristic.uuid,
-          timeout: const Duration(seconds: 5),
-        );
-        _subscriptions.add((
-          service: service.uuid,
-          characteristic: characteristic.uuid,
-        ));
-      }
-      if (_subscriptions.length < 2) {
-        throw StateError('Ring is missing required PPG/IMU characteristics');
-      }
-      connectedDevice = result.device;
-      status = 'Ring streaming';
-      _resetClock();
-    } catch (error) {
-      status = 'Ring connection failed: $error';
+    _resetClock();
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await UniversalBle.disconnect(result.id);
-      } catch (_) {}
-    } finally {
-      isConnecting = false;
-      notifyListeners();
+        if (attempt > 1) {
+          status = 'Bluetooth link dropped — retrying ($attempt/3)…';
+          notifyListeners();
+          try {
+            await UniversalBle.disconnect(result.id);
+          } catch (_) {}
+          await Future<void>.delayed(Duration(milliseconds: 450 * attempt));
+        }
+        await UniversalBle.connect(
+          result.id,
+          timeout: const Duration(seconds: 15),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        final services = await UniversalBle.discoverServices(
+          result.id,
+          timeout: const Duration(seconds: 10),
+        );
+        final service = services.firstWhere(
+          (item) => item.uuid.toLowerCase() == ringServiceUuid,
+        );
+        _subscriptions.clear();
+        for (final characteristic in service.characteristics) {
+          final uuid = characteristic.uuid.toLowerCase();
+          if (uuid != ringPpgUuid &&
+              uuid != ringImuUuid &&
+              uuid != ringAudioUuid) {
+            continue;
+          }
+          await UniversalBle.subscribeNotifications(
+            result.id,
+            service.uuid,
+            characteristic.uuid,
+            timeout: const Duration(seconds: 5),
+          );
+          _subscriptions.add((
+            service: service.uuid,
+            characteristic: characteristic.uuid,
+          ));
+        }
+        final uuids =
+            _subscriptions.map((item) => item.characteristic.toLowerCase());
+        if (!uuids.contains(ringPpgUuid) || !uuids.contains(ringImuUuid)) {
+          throw StateError('Ring is missing required PPG/IMU characteristics');
+        }
+        connectedDevice = result.device;
+        status = _subscriptions.any(
+          (item) => item.characteristic.toLowerCase() == ringAudioUuid,
+        )
+            ? 'Ring streaming • onboard audio available'
+            : 'Ring streaming';
+        isConnecting = false;
+        notifyListeners();
+        return;
+      } catch (error) {
+        lastError = error;
+      }
     }
+    status = 'Could not connect to SakshiRing: ${lastError ?? 'unknown error'}';
+    try {
+      await UniversalBle.disconnect(result.id);
+    } catch (_) {}
+    isConnecting = false;
+    notifyListeners();
   }
 
   void _onConnectionChange(String deviceId, bool connected, String? error) {
@@ -192,10 +301,16 @@ class RingController extends ChangeNotifier {
     if (sample == null) return;
     if (sample is PpgSample) {
       _append(ppg, sample, 500);
+      ppgPackets++;
+      lastPpgAt = DateTime.now();
     } else if (sample is ImuSample) {
       _append(imu, sample, 300);
+      imuPackets++;
+      lastImuAt = DateTime.now();
     } else if (sample is AudioSample) {
       _append(audioFeatures, sample, 180);
+      audioPackets++;
+      lastAudioAt = DateTime.now();
     }
     packets++;
     onSample?.call(sample, _acquisitionTime(sample.deviceMs));
@@ -231,6 +346,12 @@ class RingController extends ChangeNotifier {
     _deviceWrapMs = 0;
     _deviceToHostOffsetUs = null;
     packets = 0;
+    ppgPackets = 0;
+    imuPackets = 0;
+    audioPackets = 0;
+    lastPpgAt = null;
+    lastImuAt = null;
+    lastAudioAt = null;
     ppg.clear();
     imu.clear();
     audioFeatures.clear();
@@ -268,3 +389,8 @@ class RingController extends ChangeNotifier {
     super.dispose();
   }
 }
+
+String _canonicalBleId(String value) =>
+    value.trim().toLowerCase().replaceAll(RegExp(r'[^a-f0-9]'), '');
+
+String _canonicalBleName(String value) => value.trim().toLowerCase();

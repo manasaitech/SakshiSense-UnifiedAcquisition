@@ -15,6 +15,7 @@ abstract class PeripheralRecorder {
   String get status;
 
   Future<void> refreshInputs();
+  Future<void> disconnectInput();
   void selectInput(String? id);
   Future<void> start({required String sessionDirectory});
   Future<void> stop();

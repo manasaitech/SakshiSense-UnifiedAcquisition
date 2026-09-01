@@ -10,7 +10,10 @@ void main() {
 
     expect(find.text('Unified Research Acquisition'), findsOneWidget);
     expect(find.text('Acquisition Setup'), findsOneWidget);
-    expect(find.text('Scan Devices'), findsOneWidget);
+    expect(find.text('BrainBit EEG'), findsOneWidget);
+    expect(find.text('SakshiSense Ring'), findsOneWidget);
+    expect(find.text('Laptop / microphone audio'), findsOneWidget);
+    expect(find.text('Continue with connected devices'), findsOneWidget);
     expect(find.text('Open Demo Session'), findsOneWidget);
   });
 
@@ -22,7 +25,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const MyApp());
-    await tester.tap(find.text('Open Demo Session'));
+    await tester.tap(find.byTooltip('Demo mode'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Demo BrainBit'), findsOneWidget);

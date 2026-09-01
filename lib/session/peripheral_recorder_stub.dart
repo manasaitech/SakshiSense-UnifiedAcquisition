@@ -29,6 +29,8 @@ class _UnsupportedPeripheralRecorder implements PeripheralRecorder {
   @override
   Future<void> refreshInputs() async {}
   @override
+  Future<void> disconnectInput() async {}
+  @override
   void selectInput(String? id) {}
   @override
   Future<void> start({required String sessionDirectory}) async {}

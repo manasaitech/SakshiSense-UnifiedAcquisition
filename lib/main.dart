@@ -93,12 +93,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
   var _status = 'Ready';
   var _storageTarget = 'Loading...';
   final List<FSensorInfo> _devices = [];
+  late final RingController _ring;
+  late final PeripheralRecorder _peripherals;
 
   @override
   void initState() {
     super.initState();
+    _ring = RingController()..addListener(_onSetupDeviceChanged);
+    _peripherals = createPeripheralRecorder(onChange: _onSetupDeviceChanged);
     _loadStorageTarget();
     _requestPlatformPermissions();
+  }
+
+  void _onSetupDeviceChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadStorageTarget() async {
@@ -120,18 +128,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> _startScan() async {
     if (kIsWeb) {
-      // The BrainBit native SDK has no Flutter web implementation.  Open a
-      // browser BLE session instead so the Web Bluetooth-capable Sakshi Ring
-      // can still be acquired from Chrome/Edge over HTTPS.
-      if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => const CollectorScreen(
-            deviceInfo: null,
-            webBleMode: true,
-          ),
-        ),
-      );
+      setState(() => _status =
+          'BrainBit requires the native app; connect SakshiSense below.');
       return;
     }
     if (_isScanning) return;
@@ -194,7 +192,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CollectorScreen(deviceInfo: info),
+        builder: (_) => CollectorScreen(
+          deviceInfo: info,
+          sharedRing: _ring,
+          sharedPeripheral: _peripherals,
+        ),
       ),
     );
   }
@@ -202,9 +204,25 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void _openDemo() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => const CollectorScreen(
+        builder: (_) => CollectorScreen(
           deviceInfo: null,
           demoMode: true,
+          sharedRing: _ring,
+          sharedPeripheral: _peripherals,
+        ),
+      ),
+    );
+  }
+
+  void _openPeripheralSession() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CollectorScreen(
+          deviceInfo: null,
+          webBleMode: kIsWeb,
+          peripheralOnlyMode: !kIsWeb,
+          sharedRing: _ring,
+          sharedPeripheral: _peripherals,
         ),
       ),
     );
@@ -230,6 +248,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
   @override
   void dispose() {
     _stopScan();
+    _ring.removeListener(_onSetupDeviceChanged);
+    _ring.dispose();
+    _peripherals.dispose();
     super.dispose();
   }
 
@@ -250,57 +271,65 @@ class _ScannerScreenState extends State<ScannerScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= 900;
+            final setup = _ScannerPanel(
+              status: _status,
+              storageTarget: _storageTarget,
+              isScanning: _isScanning,
+              ring: _ring,
+              recorder: _peripherals,
+              onScan: _isScanning ? _stopScan : _startScan,
+              onDemo: _openDemo,
+              onPeripheralSession: _openPeripheralSession,
+            );
+            final deviceList = Card(
+              child: _devices.isEmpty
+                  ? const _EmptyDeviceList()
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: _devices.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final dev = _devices[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primaryContainer,
+                            child: const Icon(Icons.sensors),
+                          ),
+                          title: Text(
+                            dev.name.isEmpty ? 'Unnamed BrainBit' : dev.name,
+                          ),
+                          subtitle: Text(
+                            '${dev.sensFamily.name} | ${dev.address} | RSSI ${dev.rssi}',
+                          ),
+                          trailing: FilledButton.tonal(
+                            onPressed: () => _openDevice(dev),
+                            child: const Text('Connect'),
+                          ),
+                          onTap: () => _openDevice(dev),
+                        );
+                      },
+                    ),
+            );
+            if (!wide) {
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  setup,
+                  const SizedBox(height: 16),
+                  SizedBox(height: 240, child: deviceList),
+                ],
+              );
+            }
             return Padding(
               padding: const EdgeInsets.all(16),
-              child: Flex(
-                direction: wide ? Axis.horizontal : Axis.vertical,
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   SizedBox(
-                    width: wide ? 360 : null,
-                    child: _ScannerPanel(
-                      status: _status,
-                      storageTarget: _storageTarget,
-                      isScanning: _isScanning,
-                      onScan: _isScanning ? _stopScan : _startScan,
-                      onDemo: _openDemo,
-                    ),
-                  ),
-                  SizedBox(width: wide ? 16 : 0, height: wide ? 0 : 16),
-                  Expanded(
-                    child: Card(
-                      child: _devices.isEmpty
-                          ? const _EmptyDeviceList()
-                          : ListView.separated(
-                              padding: const EdgeInsets.all(8),
-                              itemCount: _devices.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final dev = _devices[index];
-                                return ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer,
-                                    child: const Icon(Icons.sensors),
-                                  ),
-                                  title: Text(dev.name.isEmpty
-                                      ? 'Unnamed BrainBit'
-                                      : dev.name),
-                                  subtitle: Text(
-                                    '${dev.sensFamily.name} | ${dev.address} | RSSI ${dev.rssi}',
-                                  ),
-                                  trailing: FilledButton.tonal(
-                                    onPressed: () => _openDevice(dev),
-                                    child: const Text('Connect'),
-                                  ),
-                                  onTap: () => _openDevice(dev),
-                                );
-                              },
-                            ),
-                    ),
-                  ),
+                      width: 360, child: SingleChildScrollView(child: setup)),
+                  const SizedBox(width: 16),
+                  Expanded(child: deviceList),
                 ],
               ),
             );
@@ -316,15 +345,21 @@ class _ScannerPanel extends StatelessWidget {
     required this.status,
     required this.storageTarget,
     required this.isScanning,
+    required this.ring,
+    required this.recorder,
     required this.onScan,
     required this.onDemo,
+    required this.onPeripheralSession,
   });
 
   final String status;
   final String storageTarget;
   final bool isScanning;
+  final RingController ring;
+  final PeripheralRecorder recorder;
   final VoidCallback onScan;
   final VoidCallback onDemo;
+  final VoidCallback onPeripheralSession;
 
   @override
   Widget build(BuildContext context) {
@@ -342,20 +377,76 @@ class _ScannerPanel extends StatelessWidget {
               'On native builds, choose a BrainBit headset first. In a browser, start a Web Bluetooth session to acquire the Sakshi Ring and microphone.',
             ),
             const SizedBox(height: 12),
-            _InfoLine(
-                icon: Icons.bluetooth_searching,
-                label: 'Scanner',
-                value: status),
+            _DeviceSetupTile(
+              icon: Icons.sensors,
+              title: 'BrainBit EEG',
+              status: kIsWeb ? 'Native app required for BrainBit EEG' : status,
+              connected: false,
+              primaryLabel: isScanning ? 'Stop scan' : 'Scan BrainBit',
+              onPrimary: kIsWeb ? null : onScan,
+            ),
+            const SizedBox(height: 8),
+            _DeviceSetupTile(
+              icon: Icons.watch,
+              title: 'SakshiSense Ring',
+              status: ring.status,
+              connected: ring.isConnected,
+              primaryLabel: ring.isScanning ? 'Stop scan' : 'Connect ring',
+              onPrimary: ring.isConnecting ? null : ring.scan,
+              onDisconnect: ring.isConnected ? ring.disconnect : null,
+            ),
+            const SizedBox(height: 8),
+            if (ring.devices.isNotEmpty && !ring.isConnected)
+              ...ring.devices.map(
+                (device) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: OutlinedButton.icon(
+                    onPressed: () => ring.connect(device),
+                    icon: const Icon(Icons.bluetooth),
+                    label: Text('${device.name} • ${device.rssi} dBm'),
+                  ),
+                ),
+              ),
+            _DeviceSetupTile(
+              icon: Icons.mic,
+              title: 'Laptop / microphone audio',
+              status: recorder.status,
+              connected: recorder.status.toLowerCase().contains('connected'),
+              primaryLabel: 'Connect microphone',
+              onPrimary: recorder.refreshInputs,
+              onDisconnect: recorder.disconnectInput,
+            ),
+            if (recorder.inputs.isNotEmpty)
+              DropdownButtonFormField<String>(
+                initialValue: recorder.selectedInputId ?? '',
+                decoration: const InputDecoration(labelText: 'Audio input'),
+                items: [
+                  const DropdownMenuItem(
+                    value: '',
+                    child: Text('System default'),
+                  ),
+                  ...recorder.inputs.map(
+                    (input) => DropdownMenuItem(
+                      value: input.id,
+                      child: Text(input.label),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => recorder.selectInput(
+                  value == null || value.isEmpty ? null : value,
+                ),
+              ),
             const SizedBox(height: 8),
             _InfoLine(
-                icon: Icons.folder_outlined,
-                label: 'Default export',
-                value: storageTarget),
-            const SizedBox(height: 16),
+              icon: Icons.folder_outlined,
+              label: 'Default export',
+              value: storageTarget,
+            ),
+            const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: onScan,
-              icon: Icon(isScanning ? Icons.stop : Icons.search),
-              label: Text(isScanning ? 'Stop Scan' : 'Start Web BLE / Scan'),
+              onPressed: onPeripheralSession,
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Continue with connected devices'),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
@@ -368,6 +459,74 @@ class _ScannerPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DeviceSetupTile extends StatelessWidget {
+  const _DeviceSetupTile({
+    required this.icon,
+    required this.title,
+    required this.status,
+    required this.connected,
+    required this.primaryLabel,
+    required this.onPrimary,
+    this.onDisconnect,
+  });
+
+  final IconData icon;
+  final String title;
+  final String status;
+  final bool connected;
+  final String primaryLabel;
+  final VoidCallback? onPrimary;
+  final VoidCallback? onDisconnect;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(title)),
+                  Icon(
+                    connected ? Icons.check_circle : Icons.circle_outlined,
+                    color: connected ? Colors.green : Colors.grey,
+                    size: 18,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(status, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonal(
+                      onPressed: connected ? null : onPrimary,
+                      child: Text(primaryLabel),
+                    ),
+                  ),
+                  if (onDisconnect != null) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: onDisconnect,
+                      child: const Text('Disconnect'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _EmptyDeviceList extends StatelessWidget {
@@ -408,13 +567,20 @@ class CollectorScreen extends StatefulWidget {
     required this.deviceInfo,
     this.demoMode = false,
     this.webBleMode = false,
+    this.peripheralOnlyMode = false,
+    this.sharedRing,
+    this.sharedPeripheral,
   });
 
   final FSensorInfo? deviceInfo;
   final bool demoMode;
+
   /// A browser session acquires Web Bluetooth peripherals (currently the
   /// Sakshi Ring) without attempting the native BrainBit SDK.
   final bool webBleMode;
+  final bool peripheralOnlyMode;
+  final RingController? sharedRing;
+  final PeripheralRecorder? sharedPeripheral;
 
   @override
   State<CollectorScreen> createState() => _CollectorScreenState();
@@ -431,6 +597,8 @@ class _CollectorScreenState extends State<CollectorScreen> {
   late final MarkerTransport _markerTransport;
   late final RingController _ring;
   late final PeripheralRecorder _peripherals;
+  late final bool _ownsRing;
+  late final bool _ownsPeripheral;
   final _subscriptions = <StreamSubscription<dynamic>>[];
   StreamSubscription<IncomingMarker>? _incomingMarkerSub;
   StreamSubscription<IncomingMarker>? _incomingLslMarkerSub;
@@ -506,9 +674,14 @@ class _CollectorScreenState extends State<CollectorScreen> {
   @override
   void initState() {
     super.initState();
-    _peripherals = createPeripheralRecorder(onChange: _onPeripheralChanged);
-    _ring = RingController(onSample: _handleRingSample);
-    _peripherals.refreshInputs();
+    _ownsPeripheral = widget.sharedPeripheral == null;
+    _ownsRing = widget.sharedRing == null;
+    _peripherals = widget.sharedPeripheral ??
+        createPeripheralRecorder(onChange: _onPeripheralChanged);
+    _ring = widget.sharedRing ?? RingController();
+    _ring.onSample = _handleRingSample;
+    _ring.addListener(_onPeripheralChanged);
+    if (_ownsPeripheral) _peripherals.refreshInputs();
     _markerTransport = createMarkerTransport();
     _incomingMarkerSub = _markerTransport.markers.listen(_handleIncomingMarker);
     _lslTransport = createLslMarkerTransport();
@@ -519,6 +692,10 @@ class _CollectorScreenState extends State<CollectorScreen> {
     _loadMarkerButtons();
     if (widget.demoMode) {
       _connection = 'Demo';
+    } else if (widget.peripheralOnlyMode) {
+      _connection = 'Peripheral session ready';
+      _status = 'Connect ring and microphone independently';
+      _preflightComplete = true;
     } else {
       _connect();
     }
@@ -889,8 +1066,9 @@ class _CollectorScreenState extends State<CollectorScreen> {
   }
 
   Future<void> _startStream() async {
-    final webBle = widget.webBleMode && kIsWeb;
-    if (!widget.demoMode && !webBle && !_preflightComplete) {
+    final peripheralMode =
+        (widget.webBleMode && kIsWeb) || widget.peripheralOnlyMode;
+    if (!widget.demoMode && !peripheralMode && !_preflightComplete) {
       setState(() => _status = 'Complete electrode impedance preflight first');
       return;
     }
@@ -904,7 +1082,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
         final batch = List.generate(5, (_) => _nextDemoSample());
         _handleSamples(batch);
       });
-    } else if (!webBle) {
+    } else if (!peripheralMode) {
       try {
         await _startSignalCommands(warnings);
       } catch (e) {
@@ -941,11 +1119,11 @@ class _CollectorScreenState extends State<CollectorScreen> {
       _streaming = true;
       _status = widget.demoMode
           ? 'Streaming'
-          : webBle
-              ? 'Web BLE streaming (ring + microphone)'
-          : (warnings.isEmpty
-              ? 'Streaming'
-              : 'Streaming; ${warnings.join('; ')}');
+          : peripheralMode
+              ? 'Peripheral streaming (ring + microphone)'
+              : (warnings.isEmpty
+                  ? 'Streaming'
+                  : 'Streaming; ${warnings.join('; ')}');
     });
   }
 
@@ -994,7 +1172,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
       await _markerTransport.stopOutlet();
       await _lslTransport.stopReceiver();
       await _lslTransport.stopOutlet();
-      await _ring.disconnect();
+      if (_ownsRing) await _ring.disconnect();
       for (final sub in _subscriptions) {
         await sub.cancel();
       }
@@ -1897,8 +2075,10 @@ class _CollectorScreenState extends State<CollectorScreen> {
     _incomingLslMarkerSub?.cancel();
     _markerTransport.dispose();
     _lslTransport.dispose();
-    _ring.dispose();
-    _peripherals.dispose();
+    _ring.removeListener(_onPeripheralChanged);
+    _ring.onSample = null;
+    if (_ownsRing) _ring.dispose();
+    if (_ownsPeripheral) _peripherals.dispose();
     if (!_disconnecting) {
       _sensor?.disconnect();
       _sensor?.dispose();
@@ -1911,17 +2091,20 @@ class _CollectorScreenState extends State<CollectorScreen> {
   Widget build(BuildContext context) {
     final deviceTitle = widget.demoMode
         ? 'Demo BrainBit'
-        : widget.webBleMode
-            ? 'Web BLE session'
-        : (widget.deviceInfo?.name.isNotEmpty == true
-            ? widget.deviceInfo!.name
-            : 'BrainBit device');
+        : widget.webBleMode || widget.peripheralOnlyMode
+            ? 'Peripheral session'
+            : (widget.deviceInfo?.name.isNotEmpty == true
+                ? widget.deviceInfo!.name
+                : 'BrainBit device');
     final isConnected = widget.demoMode ||
         widget.webBleMode ||
+        widget.peripheralOnlyMode ||
         _connection == 'Connected' ||
         _connection == 'inRange';
     final readyForAcquisition = widget.demoMode ||
-        widget.webBleMode || (isConnected && _preflightComplete);
+        widget.webBleMode ||
+        widget.peripheralOnlyMode ||
+        (isConnected && _preflightComplete);
     final compactLayout = MediaQuery.sizeOf(context).width < 900;
     return PopScope(
       canPop: false,
@@ -1975,7 +2158,9 @@ class _CollectorScreenState extends State<CollectorScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 900;
-                if (!widget.demoMode && !widget.webBleMode &&
+                if (!widget.demoMode &&
+                    !widget.webBleMode &&
+                    !widget.peripheralOnlyMode &&
                     !_preflightComplete) {
                   final preflight = _ImpedancePreflightPage(
                     connection: _connection,
@@ -2121,7 +2306,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
                     body: ListView(
                       padding: const EdgeInsets.all(12),
                       children: [
-                        SizedBox(height: 440, child: peripherals),
+                        SizedBox(height: 540, child: peripherals),
                         const SizedBox(height: 12),
                         SizedBox(height: 420, child: overview),
                         const SizedBox(height: 8),
@@ -2143,7 +2328,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
                           width: max(520, constraints.maxWidth - 376),
                           child: Column(
                             children: [
-                              SizedBox(height: 440, child: peripherals),
+                              SizedBox(height: 540, child: peripherals),
                               const SizedBox(height: 10),
                               SizedBox(height: 230, child: overview),
                               const SizedBox(height: 10),
@@ -2266,6 +2451,11 @@ class _PeripheralPanel extends StatelessWidget {
                   onPressed: recording ? null : recorder.refreshInputs,
                   icon: const Icon(Icons.refresh),
                 ),
+                IconButton(
+                  tooltip: 'Disconnect microphone',
+                  onPressed: recording ? null : recorder.disconnectInput,
+                  icon: const Icon(Icons.mic_off_outlined),
+                ),
               ],
             ),
             if (ring.devices.isNotEmpty && !ring.isConnected)
@@ -2350,6 +2540,39 @@ class _PeripheralPanel extends StatelessWidget {
                   Expanded(child: _PpgMetricsCard(metrics: ppgMetrics)),
                 ],
               ),
+            ),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                Chip(
+                  avatar: Icon(
+                    ring.streamAlive(ring.lastAudioAt)
+                        ? Icons.graphic_eq
+                        : Icons.hearing_disabled_outlined,
+                    size: 16,
+                  ),
+                  label: Text(
+                    ring.audioPackets == 0
+                        ? 'Onboard audio unavailable'
+                        : 'Onboard: ${ring.onboardSoundClass} • '
+                            '${ring.onboardSoundLevelDb.toStringAsFixed(1)} dBFS',
+                  ),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.directions_run, size: 16),
+                  label: Text(
+                    '${ring.activity} • ${ring.motionLevel.toStringAsFixed(3)} g',
+                  ),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.mic, size: 16),
+                  label: Text(
+                    'Laptop mic: ${recorder.amplitudeDb.toStringAsFixed(1)} dBFS',
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Row(

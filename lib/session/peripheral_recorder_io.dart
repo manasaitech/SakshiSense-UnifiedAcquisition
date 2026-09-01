@@ -68,6 +68,16 @@ class _IoPeripheralRecorder implements PeripheralRecorder {
   }
 
   @override
+  Future<void> disconnectInput() async {
+    if (_isRecording) await stop();
+    _selectedInputId = null;
+    _amplitudeDb = -160;
+    _amplitudeHistory.clear();
+    _status = 'Microphone disconnected';
+    _onChange();
+  }
+
+  @override
   void selectInput(String? id) {
     _selectedInputId = id;
     _onChange();

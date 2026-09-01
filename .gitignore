@@ -7,12 +7,10 @@
 .pub-cache/
 build/
 coverage/
+node_modules/
 
 # Cloudflare/local tooling state
 .wrangler/
-
-# Generated release artifacts (build these in CI)
-artifacts/
 
 # IDE and machine-local files
 .idea/

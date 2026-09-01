@@ -64,6 +64,12 @@ flutter pub get
 flutter run
 ```
 
+The setup screen controls BrainBit, SakshiSense Ring, and microphone
+connections independently. You can continue with any available combination,
+and disconnect the ring or microphone separately from the acquisition screen.
+The ring panel shows live PPG/IMU, onboard audio RMS classification, motion
+inference, and laptop/browser microphone level.
+
 Release builds:
 
 ```sh
@@ -86,3 +92,19 @@ permission dialog, then start the session. BrainBit EEG still requires the
 native Android, iOS, macOS, or Windows build because the Flutter Neurosdk2
 plugin has no web implementation; the browser session deliberately does not
 pretend to scan for an unsupported headset.
+
+## Browser LSL bridge
+
+Web browsers cannot use native LSL sockets directly. To transmit and receive
+LSL marker streams from the web app, run the local bridge on the acquisition
+computer:
+
+```sh
+cd lsl_bridge
+npm install
+npm start
+```
+
+Then enable the LSL receiver/outlet controls in the web app. The bridge listens
+only on `127.0.0.1:15335`; it uses `@neurodevs/node-lsl` for outgoing markers
+and `node-labstreaminglayer` for incoming markers.
