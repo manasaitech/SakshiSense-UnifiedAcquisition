@@ -120,8 +120,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   Future<void> _startScan() async {
     if (kIsWeb) {
-      setState(() => _status =
-          'Native Bluetooth SDK is unavailable on web. Use demo mode.');
+      // The BrainBit native SDK has no Flutter web implementation.  Open a
+      // browser BLE session instead so the Web Bluetooth-capable Sakshi Ring
+      // can still be acquired from Chrome/Edge over HTTPS.
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const CollectorScreen(
+            deviceInfo: null,
+            webBleMode: true,
+          ),
+        ),
+      );
       return;
     }
     if (_isScanning) return;
@@ -329,7 +339,7 @@ class _ScannerPanel extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 6),
             const Text(
-              'Choose the BrainBit headset first. Ring and microphone setup follows on the unified acquisition screen.',
+              'On native builds, choose a BrainBit headset first. In a browser, start a Web Bluetooth session to acquire the Sakshi Ring and microphone.',
             ),
             const SizedBox(height: 12),
             _InfoLine(
@@ -345,7 +355,7 @@ class _ScannerPanel extends StatelessWidget {
             FilledButton.icon(
               onPressed: onScan,
               icon: Icon(isScanning ? Icons.stop : Icons.search),
-              label: Text(isScanning ? 'Stop Scan' : 'Scan Devices'),
+              label: Text(isScanning ? 'Stop Scan' : 'Start Web BLE / Scan'),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
@@ -378,7 +388,7 @@ class _EmptyDeviceList extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text(
-                  'Turn on the headset, keep it nearby, then scan.',
+                  'Turn on the headset (native) or open a Web BLE session (browser) to choose a nearby Sakshi Ring.',
                   style: Theme.of(context)
                       .textTheme
                       .bodyMedium
@@ -397,10 +407,14 @@ class CollectorScreen extends StatefulWidget {
     super.key,
     required this.deviceInfo,
     this.demoMode = false,
+    this.webBleMode = false,
   });
 
   final FSensorInfo? deviceInfo;
   final bool demoMode;
+  /// A browser session acquires Web Bluetooth peripherals (currently the
+  /// Sakshi Ring) without attempting the native BrainBit SDK.
+  final bool webBleMode;
 
   @override
   State<CollectorScreen> createState() => _CollectorScreenState();
@@ -551,7 +565,17 @@ class _CollectorScreenState extends State<CollectorScreen> {
 
   Future<void> _connect() async {
     final info = widget.deviceInfo;
-    if (info == null) return;
+    if (info == null) {
+      if (widget.webBleMode && mounted) {
+        setState(() {
+          _connection = 'Web BLE ready';
+          _status = 'Use Scan ring below to choose a Sakshi Ring';
+          _preflightComplete = true;
+          _channelLabels = const ['Ring PPG', 'Ring IMU', 'Ring audio', 'Mic'];
+        });
+      }
+      return;
+    }
     setState(() {
       _connection = 'Connecting';
       _status = 'Creating sensor';
@@ -865,7 +889,8 @@ class _CollectorScreenState extends State<CollectorScreen> {
   }
 
   Future<void> _startStream() async {
-    if (!widget.demoMode && !_preflightComplete) {
+    final webBle = widget.webBleMode && kIsWeb;
+    if (!widget.demoMode && !webBle && !_preflightComplete) {
       setState(() => _status = 'Complete electrode impedance preflight first');
       return;
     }
@@ -879,7 +904,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
         final batch = List.generate(5, (_) => _nextDemoSample());
         _handleSamples(batch);
       });
-    } else {
+    } else if (!webBle) {
       try {
         await _startSignalCommands(warnings);
       } catch (e) {
@@ -916,6 +941,8 @@ class _CollectorScreenState extends State<CollectorScreen> {
       _streaming = true;
       _status = widget.demoMode
           ? 'Streaming'
+          : webBle
+              ? 'Web BLE streaming (ring + microphone)'
           : (warnings.isEmpty
               ? 'Streaming'
               : 'Streaming; ${warnings.join('; ')}');
@@ -1884,14 +1911,17 @@ class _CollectorScreenState extends State<CollectorScreen> {
   Widget build(BuildContext context) {
     final deviceTitle = widget.demoMode
         ? 'Demo BrainBit'
+        : widget.webBleMode
+            ? 'Web BLE session'
         : (widget.deviceInfo?.name.isNotEmpty == true
             ? widget.deviceInfo!.name
             : 'BrainBit device');
     final isConnected = widget.demoMode ||
+        widget.webBleMode ||
         _connection == 'Connected' ||
         _connection == 'inRange';
-    final readyForAcquisition =
-        widget.demoMode || (isConnected && _preflightComplete);
+    final readyForAcquisition = widget.demoMode ||
+        widget.webBleMode || (isConnected && _preflightComplete);
     final compactLayout = MediaQuery.sizeOf(context).width < 900;
     return PopScope(
       canPop: false,
@@ -1945,7 +1975,8 @@ class _CollectorScreenState extends State<CollectorScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 900;
-                if (!widget.demoMode && !_preflightComplete) {
+                if (!widget.demoMode && !widget.webBleMode &&
+                    !_preflightComplete) {
                   final preflight = _ImpedancePreflightPage(
                     connection: _connection,
                     status: _status,

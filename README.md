@@ -80,5 +80,10 @@ The deployed web app is protected by a Cloudflare Pages edge login. The
 current session passcode is managed as a Cloudflare secret; use `/__logout` to
 clear an active browser session.
 
-Real BrainBit acquisition requires a native Android, iOS, macOS, or Windows
-build. Web remains available for the BrainBit demo and CSV workflow.
+Web Bluetooth acquisition is supported in Chrome/Edge over HTTPS for the
+Sakshi Ring (PPG, IMU, optional onboard audio) and browser microphone. Open
+`Start Web BLE / Scan` from the setup screen, choose the ring in the browser
+permission dialog, then start the session. BrainBit EEG still requires the
+native Android, iOS, macOS, or Windows build because the Flutter Neurosdk2
+plugin has no web implementation; the browser session deliberately does not
+pretend to scan for an unsupported headset.
