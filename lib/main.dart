@@ -2158,34 +2158,6 @@ class _CollectorScreenState extends State<CollectorScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 900;
-                if (!widget.demoMode &&
-                    !widget.webBleMode &&
-                    !widget.peripheralOnlyMode &&
-                    !_preflightComplete) {
-                  final preflight = _ImpedancePreflightPage(
-                    connection: _connection,
-                    status: _status,
-                    batteryStatus: _batteryStatus,
-                    channelLabels: _channelLabels,
-                    latestQuality: _latestQuality,
-                    checkingImpedance: _checkingImpedance,
-                    monitoringImpedance: _preflightResistActive,
-                    canCheck: isConnected && !_disconnecting,
-                    canContinue: isConnected && !_disconnecting,
-                    onCheckImpedance: _checkImpedance,
-                    onContinue: () => _continueToAcquisition(),
-                  );
-                  if (wide) {
-                    return Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: preflight,
-                    );
-                  }
-                  return ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [preflight],
-                  );
-                }
                 final lostPercent = _receivedSamples + _lostSignalPackets == 0
                     ? 0.0
                     : _lostSignalPackets /
@@ -2265,7 +2237,49 @@ class _CollectorScreenState extends State<CollectorScreen> {
                   onLslOutletChanged: _streaming || !_lslTransport.supportsLsl
                       ? null
                       : (v) => setState(() => _lslOutletEnabled = v),
+                  onConfigureUdp: _streaming ? null : _configureUdp,
                 );
+                if (!widget.demoMode &&
+                    !widget.webBleMode &&
+                    !widget.peripheralOnlyMode &&
+                    !_preflightComplete) {
+                  final preflight = _ImpedancePreflightPage(
+                    connection: _connection,
+                    status: _status,
+                    batteryStatus: _batteryStatus,
+                    channelLabels: _channelLabels,
+                    latestQuality: _latestQuality,
+                    checkingImpedance: _checkingImpedance,
+                    monitoringImpedance: _preflightResistActive,
+                    canCheck: isConnected && !_disconnecting,
+                    canContinue: isConnected && !_disconnecting,
+                    onCheckImpedance: _checkImpedance,
+                    onContinue: () => _continueToAcquisition(),
+                  );
+                  if (!wide) {
+                    return Scaffold(
+                      key: _mobileScaffoldKey,
+                      drawer: Drawer(
+                        child: SafeArea(child: controlPanel),
+                      ),
+                      body: ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [preflight],
+                      ),
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(width: 360, child: controlPanel),
+                        const SizedBox(width: 12),
+                        Expanded(child: preflight),
+                      ],
+                    ),
+                  );
+                }
                 final overview = _OverviewPanels(
                   channelLabels: _channelLabels,
                   latestQuality: _latestQuality,
@@ -2318,26 +2332,24 @@ class _CollectorScreenState extends State<CollectorScreen> {
 
                 return Padding(
                   padding: const EdgeInsets.all(12),
-                  child: SingleChildScrollView(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(width: 340, child: controlPanel),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: max(520, constraints.maxWidth - 376),
-                          child: Column(
-                            children: [
-                              SizedBox(height: 540, child: peripherals),
-                              const SizedBox(height: 10),
-                              SizedBox(height: 230, child: overview),
-                              const SizedBox(height: 10),
-                              SizedBox(height: 820, child: charts),
-                            ],
-                          ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 360, child: controlPanel),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ListView(
+                          padding: EdgeInsets.zero,
+                          children: [
+                            SizedBox(height: 540, child: peripherals),
+                            const SizedBox(height: 10),
+                            SizedBox(height: 230, child: overview),
+                            const SizedBox(height: 10),
+                            SizedBox(height: 820, child: charts),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -3408,6 +3420,7 @@ class _ControlPanel extends StatelessWidget {
     required this.onNetworkOutletChanged,
     required this.onLslReceiverChanged,
     required this.onLslOutletChanged,
+    required this.onConfigureUdp,
   });
 
   final String connection;
@@ -3464,206 +3477,321 @@ class _ControlPanel extends StatelessWidget {
   final ValueChanged<bool>? onNetworkOutletChanged;
   final ValueChanged<bool>? onLslReceiverChanged;
   final ValueChanged<bool>? onLslOutletChanged;
+  final VoidCallback? onConfigureUdp;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('Session Control',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ),
+                if (recording)
+                  const _RecordingPill()
+                else
+                  Chip(
+                    label: Text(connection),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ),
+          _ControlSection(
+            icon: Icons.sensors_outlined,
+            title: 'Device & storage',
+            children: [
+              _InfoLine(
+                icon: Icons.info_outline,
+                label: 'Status',
+                value: status,
+                maxLines: 5,
+              ),
+              _InfoLine(
+                icon: Icons.speed,
+                label: 'EEG rate',
+                value: '$sampleRateHz Hz',
+              ),
+              _InfoLine(
+                icon: Icons.battery_std,
+                label: 'Battery',
+                value:
+                    battery > 0 ? '$battery% • $batteryStatus' : batteryStatus,
+              ),
+              _InfoLine(
+                icon: Icons.folder_outlined,
+                label: 'Export',
+                value: exportTarget,
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onChooseDirectory,
+                  icon: const Icon(Icons.folder_open_outlined),
+                  label: const Text('Change Export Folder'),
+                ),
+              ),
+            ],
+          ),
+          _ControlSection(
+            icon: Icons.badge_outlined,
+            title: 'Participant & protocol',
+            children: [
+              _InfoLine(
+                icon: Icons.badge_outlined,
+                label: 'Subject',
+                value: metadata.subjectId,
+              ),
+              _InfoLine(
+                icon: Icons.route_outlined,
+                label: 'Protocol',
+                value: metadata.protocol,
+              ),
+              _InfoLine(
+                icon: Icons.event_note_outlined,
+                label: 'Session / day',
+                value: '${metadata.sessionNumber} / ${metadata.day}',
+              ),
+              if (metadata.customQuestions.isNotEmpty)
+                _InfoLine(
+                  icon: Icons.quiz_outlined,
+                  label: 'Questions',
+                  value: '${metadata.customQuestions.length} answered',
+                ),
+            ],
+          ),
+          _ControlSection(
+            icon: Icons.tune,
+            title: 'Acquisition channels',
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Resistance/contact quality'),
+                value: collectResist,
+                onChanged: onResistChanged,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Motion data'),
+                value: collectMems,
+                onChanged: onMemsChanged,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('FPG/PPG data'),
+                value: collectFpg,
+                onChanged: onFpgChanged,
+              ),
+              _DisplayFilterControls(
+                bandPassEnabled: viewBandPass,
+                fMinHz: viewFMinHz,
+                fMaxHz: viewFMaxHz,
+                notchHz: viewNotchHz,
+                onBandPassChanged: onBandPassChanged,
+                onFMinChanged: onFMinChanged,
+                onFMaxChanged: onFMaxChanged,
+                onNotchChanged: onNotchChanged,
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: checkingImpedance ? null : onCheckImpedance,
+                  icon: const Icon(Icons.electrical_services_outlined),
+                  label: Text(checkingImpedance
+                      ? 'Checking Impedance'
+                      : 'Check Electrode Impedance'),
+                ),
+              ),
+            ],
+          ),
+          _ControlSection(
+            icon: Icons.flag_outlined,
+            title: 'Event markers',
+            children: [
+              _InfoLine(
+                icon: Icons.flag_outlined,
+                label: 'Status',
+                value: markerStatus,
+                maxLines: 3,
+              ),
+              _InfoLine(
+                icon: Icons.history,
+                label: 'Last',
+                value: '$lastMarker ($markerCount)',
+                maxLines: 2,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final code in quickMarkers)
+                    OutlinedButton(
+                      onPressed: onQuickMarker == null
+                          ? null
+                          : () => onQuickMarker!(code),
+                      child: Text(code),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: onCustomMarker,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Custom'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          _ControlSection(
+            icon: Icons.hub_outlined,
+            title: 'UDP & LSL',
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('UDP marker receiver :$markerPort'),
+                subtitle:
+                    udpSupported ? null : const Text('Unavailable on web'),
+                value: udpSupported && markerReceiverEnabled,
+                onChanged: onMarkerReceiverChanged,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text('UDP outlet $outletHost:$outletPort'),
+                subtitle:
+                    udpSupported ? null : const Text('Unavailable on web'),
+                value: udpSupported && networkOutletEnabled,
+                onChanged: onNetworkOutletChanged,
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onConfigureUdp,
+                  icon: const Icon(Icons.settings_ethernet),
+                  label: const Text('Edit UDP endpoints'),
+                ),
+              ),
+              const Divider(height: 24),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('LSL marker receiver'),
+                subtitle: Text(lslSupported ? lslStatus : 'Unavailable on web'),
+                value: lslSupported && lslReceiverEnabled,
+                onChanged: onLslReceiverChanged,
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('LSL string/int marker outlets'),
+                subtitle:
+                    const Text('UnifiedMarkersString and UnifiedMarkersInt'),
+                value: lslSupported && lslOutletEnabled,
+                onChanged: onLslOutletChanged,
+              ),
+            ],
+          ),
+          _ControlSection(
+            icon: Icons.query_stats,
+            title: 'Session totals',
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _Counter(label: 'Stream', value: elapsed),
+                  _Counter(
+                    label: 'Record',
+                    value: recording ? recordElapsed : '00:00',
+                  ),
+                  _Counter(
+                    label: 'Samples',
+                    value: NumberFormat.compact().format(receivedSamples),
+                  ),
+                  _Counter(label: 'Lost', value: lostPackets.toString()),
+                  _Counter(label: 'Gaps', value: droppedBursts.toString()),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canStream ? onStream : null,
+                  icon: Icon(streaming ? Icons.stop : Icons.play_arrow),
+                  label: Text(streaming ? 'Stop Stream' : 'Start Stream'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  onPressed: onRecord,
+                  icon: Icon(recording
+                      ? Icons.stop_circle_outlined
+                      : Icons.fiber_manual_record),
+                  label: Text(recording ? 'Stop Recording' : 'Record Raw Data'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ControlSection extends StatelessWidget {
+  const _ControlSection({
+    required this.icon,
+    required this.title,
+    required this.children,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('Session Control',
-                    style: Theme.of(context).textTheme.titleLarge),
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 19),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...children.map(
+              (child) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: child,
               ),
-              if (recording)
-                const _RecordingPill()
-              else
-                Chip(
-                    label: Text(connection),
-                    visualDensity: VisualDensity.compact),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _InfoLine(
-            icon: Icons.info_outline,
-            label: 'Status',
-            value: status,
-            maxLines: 5,
-          ),
-          const SizedBox(height: 8),
-          _InfoLine(
-              icon: Icons.speed, label: 'EEG rate', value: '$sampleRateHz Hz'),
-          const SizedBox(height: 8),
-          _InfoLine(
-              icon: Icons.battery_std,
-              label: 'Battery',
-              value: battery == 0 ? batteryStatus : batteryStatus),
-          const SizedBox(height: 8),
-          _InfoLine(
-              icon: Icons.folder_outlined,
-              label: 'Export',
-              value: exportTarget),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onChooseDirectory,
-            icon: const Icon(Icons.folder_open_outlined),
-            label: const Text('Change Export Folder'),
-          ),
-          const Divider(height: 28),
-          _InfoLine(
-              icon: Icons.badge_outlined,
-              label: 'Subject',
-              value: metadata.subjectId),
-          const SizedBox(height: 8),
-          _InfoLine(
-              icon: Icons.route_outlined,
-              label: 'Protocol',
-              value: metadata.protocol),
-          const SizedBox(height: 8),
-          _InfoLine(
-            icon: Icons.event_note_outlined,
-            label: 'Session / day',
-            value: '${metadata.sessionNumber} / ${metadata.day}',
-          ),
-          if (metadata.customQuestions.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _InfoLine(
-              icon: Icons.quiz_outlined,
-              label: 'Questions',
-              value: '${metadata.customQuestions.length} answered',
             ),
           ],
-          const Divider(height: 28),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Resistance/contact quality'),
-            value: collectResist,
-            onChanged: onResistChanged,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Motion data'),
-            value: collectMems,
-            onChanged: onMemsChanged,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('FPG/PPG data'),
-            value: collectFpg,
-            onChanged: onFpgChanged,
-          ),
-          _DisplayFilterControls(
-            bandPassEnabled: viewBandPass,
-            fMinHz: viewFMinHz,
-            fMaxHz: viewFMaxHz,
-            notchHz: viewNotchHz,
-            onBandPassChanged: onBandPassChanged,
-            onFMinChanged: onFMinChanged,
-            onFMaxChanged: onFMaxChanged,
-            onNotchChanged: onNotchChanged,
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: checkingImpedance ? null : onCheckImpedance,
-            icon: const Icon(Icons.electrical_services_outlined),
-            label: Text(checkingImpedance
-                ? 'Checking Impedance'
-                : 'Check Electrode Impedance'),
-          ),
-          const Divider(height: 28),
-          _InfoLine(
-            icon: Icons.flag_outlined,
-            label: 'Markers',
-            value: markerStatus,
-            maxLines: 3,
-          ),
-          const SizedBox(height: 8),
-          _InfoLine(
-            icon: Icons.history,
-            label: 'Last',
-            value: '$lastMarker ($markerCount)',
-            maxLines: 2,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final code in quickMarkers)
-                OutlinedButton(
-                  onPressed:
-                      onQuickMarker == null ? null : () => onQuickMarker!(code),
-                  child: Text(code),
-                ),
-              OutlinedButton.icon(
-                onPressed: onCustomMarker,
-                icon: const Icon(Icons.add),
-                label: const Text('Custom'),
-              ),
-            ],
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text('UDP marker receiver :$markerPort'),
-            subtitle: udpSupported ? null : const Text('Unavailable on web'),
-            value: udpSupported && markerReceiverEnabled,
-            onChanged: onMarkerReceiverChanged,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text('UDP outlet $outletHost:$outletPort'),
-            subtitle: udpSupported ? null : const Text('Unavailable on web'),
-            value: udpSupported && networkOutletEnabled,
-            onChanged: onNetworkOutletChanged,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('LSL marker receiver'),
-            subtitle: Text(lslSupported ? lslStatus : 'Unavailable on web'),
-            value: lslSupported && lslReceiverEnabled,
-            onChanged: onLslReceiverChanged,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('LSL string/int marker outlets'),
-            subtitle: const Text(
-              'UnifiedMarkersString and UnifiedMarkersInt',
-            ),
-            value: lslSupported && lslOutletEnabled,
-            onChanged: onLslOutletChanged,
-          ),
-          const Divider(height: 28),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _Counter(label: 'Stream', value: elapsed),
-              _Counter(
-                  label: 'Record', value: recording ? recordElapsed : '00:00'),
-              _Counter(
-                  label: 'Samples',
-                  value: NumberFormat.compact().format(receivedSamples)),
-              _Counter(label: 'Lost', value: lostPackets.toString()),
-              _Counter(label: 'Gaps', value: droppedBursts.toString()),
-            ],
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: canStream ? onStream : null,
-            icon: Icon(streaming ? Icons.stop : Icons.play_arrow),
-            label: Text(streaming ? 'Stop Stream' : 'Start Stream'),
-          ),
-          const SizedBox(height: 8),
-          FilledButton.tonalIcon(
-            onPressed: onRecord,
-            icon: Icon(recording
-                ? Icons.stop_circle_outlined
-                : Icons.fiber_manual_record),
-            label: Text(recording ? 'Stop Recording' : 'Record Raw Data'),
-          ),
-        ],
+        ),
       ),
     );
   }
