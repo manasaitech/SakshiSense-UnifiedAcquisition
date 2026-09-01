@@ -34,6 +34,12 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Run Flutter Tests
+        run: flutter test
+
+      - name: Analyze Flutter Sources
+        run: flutter analyze
+
       - name: Build Windows Release Executable
         run: flutter build windows --release
 
@@ -51,15 +57,18 @@ jobs:
           } elseif (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
             & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer/installer.iss
           } else {
-            Write-Host "Inno Setup compiler not found"
+            throw "Inno Setup compiler not found on windows-latest"
           }
-          if (Test-Path "build/windows/installer/UnifiedAcquisition-Setup.exe") {
-            Copy-Item "build/windows/installer/UnifiedAcquisition-Setup.exe" "build/windows/dist/UnifiedAcquisition-Setup.exe"
+          $installer = "build/windows/installer/UnifiedAcquisition-Setup.exe"
+          if (-not (Test-Path $installer)) {
+            throw "Expected installer was not generated: $installer"
           }
+          Copy-Item $installer "build/windows/dist/UnifiedAcquisition-Setup.exe"
 
       - name: Upload Windows Executable Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe-installer
+          name: SakshiSense-UnifiedAcquisition-Windows-x64
           path: build/windows/dist/*
           if-no-files-found: error
+          retention-days: 30
