@@ -60,8 +60,30 @@ jobs:
       - run: ${{ matrix.configure }}
       - run: flutter pub get
       - run: ${{ matrix.command }}
+      - name: Package Windows Executable and Installer
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "build/windows/unified-acquisition-windows-x64.zip"
+          if (Get-Command iscc -ErrorAction SilentlyContinue) {
+            iscc windows/installer/installer.iss
+          } elseif (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer/installer.iss
+          } else {
+            Write-Host "Inno Setup compiler not found; portable zip bundle created."
+          }
       - uses: actions/upload-artifact@v4
+        if: matrix.target == 'windows'
+        with:
+          name: unified-acquisition-windows
+          path: |
+            build/windows/unified-acquisition-windows-x64.zip
+            build/windows/installer/*.exe
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: matrix.target != 'windows'
         with:
           name: unified-acquisition-${{ matrix.target }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+

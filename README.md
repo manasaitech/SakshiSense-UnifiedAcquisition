@@ -73,8 +73,7 @@ flutter build apk --release
 flutter build windows --release  # run on Windows
 ```
 
-The repository workflow `.github/workflows/build-unified-app.yml` builds and
-uploads all four platform artifacts on their native GitHub runners.
+The repository workflows `.github/workflows/build.yml` and `.github/workflows/windows-build.yml` build and upload platform artifacts on their native GitHub runners. For Windows, GitHub Actions builds the release executable, packages a portable ZIP (`unified-acquisition-windows-x64.zip`), and generates a standalone Windows installer (`UnifiedAcquisition-Setup.exe`).
 
 The deployed web app is protected by a Cloudflare Pages edge login. The
 current session passcode is managed as a Cloudflare secret; use `/__logout` to

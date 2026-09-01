@@ -1,0 +1,65 @@
+name: Build Windows Executable (.exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'lib/**'
+      - 'windows/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/windows-build.yml'
+  release:
+    types: [ published ]
+
+jobs:
+  build-windows:
+    name: Build Windows Executable & Installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Windows Release Executable
+        run: flutter build windows --release
+
+      - name: Create Portable Zip Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/windows/dist
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "build/windows/dist/unified-acquisition-windows-x64.zip"
+
+      - name: Build Inno Setup Installer (.exe)
+        shell: pwsh
+        run: |
+          if (Get-Command iscc -ErrorAction SilentlyContinue) {
+            iscc windows/installer/installer.iss
+          } elseif (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer/installer.iss
+          } else {
+            Write-Host "Inno Setup compiler not found"
+          }
+          if (Test-Path "build/windows/installer/UnifiedAcquisition-Setup.exe") {
+            Copy-Item "build/windows/installer/UnifiedAcquisition-Setup.exe" "build/windows/dist/UnifiedAcquisition-Setup.exe"
+          }
+
+      - name: Upload Windows Executable Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-installer
+          path: build/windows/dist/*
+          if-no-files-found: error
