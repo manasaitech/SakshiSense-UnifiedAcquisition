@@ -1,0 +1,34 @@
+# Flutter and Dart generated state
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+.pub-cache/
+build/
+coverage/
+
+# Cloudflare/local tooling state
+.wrangler/
+
+# Generated release artifacts (build these in CI)
+artifacts/
+
+# IDE and machine-local files
+.idea/
+*.iml
+.DS_Store
+
+# Platform-generated ephemeral files
+**/Flutter/ephemeral/
+**/flutter/ephemeral/
+**/Pods/
+**/DerivedData/
+local.properties
+
+# Signing and local secrets
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+.env*

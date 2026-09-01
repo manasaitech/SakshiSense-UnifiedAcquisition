@@ -1,0 +1,31 @@
+PODS:
+  - FlutterMacOS (1.0.0)
+  - neurosdk2 (1.0.13):
+    - Flutter
+    - flutter_neurosdk2_ios (= 1.0.8)
+    - FlutterMacOS
+  - universal_ble (0.0.1):
+    - Flutter
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - neurosdk2 (from `Flutter/ephemeral/.symlinks/plugins/neurosdk2/darwin`)
+  - universal_ble (from `Flutter/ephemeral/.symlinks/plugins/universal_ble/darwin`)
+
+EXTERNAL SOURCES:
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  neurosdk2:
+    :path: Flutter/ephemeral/.symlinks/plugins/neurosdk2/darwin
+  universal_ble:
+    :path: Flutter/ephemeral/.symlinks/plugins/universal_ble/darwin
+
+SPEC CHECKSUMS:
+  FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
+  neurosdk2: 227b78da0df7ffe6a2344791e2f0c856981e567a
+  universal_ble: ff19787898040d721109c6324472e5dd4bc86adc
+
+PODFILE CHECKSUM: 1e95c36afbfd1cb6423ceca4de7a8e1b256fb6ac
+
+COCOAPODS: 1.16.2
