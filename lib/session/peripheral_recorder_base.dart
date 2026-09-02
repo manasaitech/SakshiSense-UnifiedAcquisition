@@ -14,6 +14,12 @@ abstract class PeripheralRecorder {
   List<double> get amplitudeHistory;
   String get status;
 
+  /// More than one screen can observe the same recorder while navigation is
+  /// active.  Keeping listeners here prevents a shared recorder from updating
+  /// only the setup screen behind the collector.
+  void addChangeListener(void Function() listener);
+  void removeChangeListener(void Function() listener);
+
   Future<void> refreshInputs();
   Future<void> disconnectInput();
   void selectInput(String? id);

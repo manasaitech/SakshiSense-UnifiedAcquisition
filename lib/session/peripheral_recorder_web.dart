@@ -13,9 +13,11 @@ PeripheralRecorder buildPeripheralRecorder(
     _WebPeripheralRecorder(onChange);
 
 class _WebPeripheralRecorder implements PeripheralRecorder {
-  _WebPeripheralRecorder(this._onChange);
+  _WebPeripheralRecorder(void Function() onChange) {
+    _listeners.add(onChange);
+  }
 
-  final void Function() _onChange;
+  final Set<void Function()> _listeners = {};
   final AudioRecorder _recorder = AudioRecorder();
   final List<InputDevice> _nativeInputs = [];
   final List<MicrophoneInput> _inputs = [];
@@ -24,7 +26,7 @@ class _WebPeripheralRecorder implements PeripheralRecorder {
   String? _selectedInputId;
   bool _isRecording = false;
   double _amplitudeDb = -160;
-  String _status = 'Select Connect microphone';
+  String _status = 'Tap Allow microphone to choose an input';
 
   @override
   List<MicrophoneInput> get inputs => List.unmodifiable(_inputs);
@@ -38,6 +40,19 @@ class _WebPeripheralRecorder implements PeripheralRecorder {
   List<double> get amplitudeHistory => List.unmodifiable(_amplitudeHistory);
   @override
   String get status => _status;
+
+  void _onChange() {
+    for (final listener in List<void Function()>.from(_listeners)) {
+      listener();
+    }
+  }
+
+  @override
+  void addChangeListener(void Function() listener) => _listeners.add(listener);
+
+  @override
+  void removeChangeListener(void Function() listener) =>
+      _listeners.remove(listener);
 
   @override
   Future<void> refreshInputs() async {
@@ -85,6 +100,7 @@ class _WebPeripheralRecorder implements PeripheralRecorder {
 
   @override
   Future<void> start({required String sessionDirectory}) async {
+    _isRecording = true;
     if (!await _recorder.hasPermission()) {
       _status = 'Microphone permission denied; other sensors still recording';
       _onChange();
@@ -94,19 +110,27 @@ class _WebPeripheralRecorder implements PeripheralRecorder {
     for (final input in _nativeInputs) {
       if (input.id == _selectedInputId) selected = input;
     }
-    await _recorder.start(
-      RecordConfig(
-        encoder: AudioEncoder.wav,
-        sampleRate: 48000,
-        numChannels: 1,
-        device: selected,
-        autoGain: false,
-        echoCancel: false,
-        noiseSuppress: false,
-      ),
-      path: '',
-    );
-    _isRecording = true;
+    try {
+      if (!await _recorder.isEncoderSupported(AudioEncoder.wav)) {
+        throw StateError('WAV recording is unavailable in this browser');
+      }
+      await _recorder.start(
+        RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 48000,
+          numChannels: 1,
+          device: selected,
+          autoGain: false,
+          echoCancel: false,
+          noiseSuppress: false,
+        ),
+        path: '',
+      );
+    } catch (error) {
+      _status = 'Microphone could not start: $error';
+      _onChange();
+      return;
+    }
     _amplitudeSubscription = _recorder
         .onAmplitudeChanged(const Duration(milliseconds: 100))
         .listen((value) {
@@ -142,6 +166,8 @@ class _WebPeripheralRecorder implements PeripheralRecorder {
       html.document.body?.append(anchor);
       anchor.click();
       anchor.remove();
+      // Revoking immediately can cancel the download on mobile Safari.
+      Timer(const Duration(seconds: 5), () => html.Url.revokeObjectUrl(url));
     }
     _status = 'Microphone recording downloaded';
     _onChange();
@@ -151,5 +177,6 @@ class _WebPeripheralRecorder implements PeripheralRecorder {
   Future<void> dispose() async {
     if (_isRecording) await stop();
     await _recorder.dispose();
+    _listeners.clear();
   }
 }

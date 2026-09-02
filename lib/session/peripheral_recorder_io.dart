@@ -11,9 +11,11 @@ PeripheralRecorder buildPeripheralRecorder(
     _IoPeripheralRecorder(onChange);
 
 class _IoPeripheralRecorder implements PeripheralRecorder {
-  _IoPeripheralRecorder(this._onChange);
+  _IoPeripheralRecorder(void Function() onChange) {
+    _listeners.add(onChange);
+  }
 
-  final void Function() _onChange;
+  final Set<void Function()> _listeners = {};
   final AudioRecorder _audioRecorder = AudioRecorder();
   final List<InputDevice> _nativeInputs = [];
   final List<MicrophoneInput> _inputs = [];
@@ -37,6 +39,19 @@ class _IoPeripheralRecorder implements PeripheralRecorder {
   List<double> get amplitudeHistory => List.unmodifiable(_amplitudeHistory);
   @override
   String get status => _status;
+
+  void _onChange() {
+    for (final listener in List<void Function()>.from(_listeners)) {
+      listener();
+    }
+  }
+
+  @override
+  void addChangeListener(void Function() listener) => _listeners.add(listener);
+
+  @override
+  void removeChangeListener(void Function() listener) =>
+      _listeners.remove(listener);
 
   @override
   Future<void> refreshInputs() async {
@@ -111,6 +126,9 @@ class _IoPeripheralRecorder implements PeripheralRecorder {
     final audioPath =
         '${directory.path}${Platform.pathSeparator}microphone.wav';
     try {
+      if (!await _audioRecorder.isEncoderSupported(AudioEncoder.wav)) {
+        throw StateError('WAV recording is not supported on this device');
+      }
       await _audioRecorder.start(
         RecordConfig(
           encoder: AudioEncoder.wav,
@@ -146,7 +164,6 @@ class _IoPeripheralRecorder implements PeripheralRecorder {
     DateTime acquiredAt,
     int hostMonotonicUs,
   ) {
-    // Device audio is exported separately by the acquisition controller.
     if (sample is AudioSample) return;
     if (!_isRecording || _ringSink == null) return;
     _ringSink!.writeln([
@@ -179,5 +196,6 @@ class _IoPeripheralRecorder implements PeripheralRecorder {
   Future<void> dispose() async {
     await stop();
     await _audioRecorder.dispose();
+    _listeners.clear();
   }
 }

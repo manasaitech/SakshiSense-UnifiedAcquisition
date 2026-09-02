@@ -300,7 +300,7 @@ class RingController extends ChangeNotifier {
     };
     if (sample == null) return;
     if (sample is PpgSample) {
-      _append(ppg, sample, 500);
+      _append(ppg, sample, 3000);
       ppgPackets++;
       lastPpgAt = DateTime.now();
     } else if (sample is ImuSample) {

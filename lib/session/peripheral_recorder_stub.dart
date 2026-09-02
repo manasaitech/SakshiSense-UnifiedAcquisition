@@ -6,6 +6,7 @@ PeripheralRecorder buildPeripheralRecorder(
     _UnsupportedPeripheralRecorder();
 
 class _UnsupportedPeripheralRecorder implements PeripheralRecorder {
+  final Set<void Function()> _listeners = {};
   @override
   double get amplitudeDb => -160;
   @override
@@ -19,13 +20,18 @@ class _UnsupportedPeripheralRecorder implements PeripheralRecorder {
   @override
   String get status => 'Microphone file capture requires a native build';
   @override
+  void addChangeListener(void Function() listener) => _listeners.add(listener);
+  @override
+  void removeChangeListener(void Function() listener) =>
+      _listeners.remove(listener);
+  @override
   void addRingSample(
     TelemetrySample sample,
     DateTime acquiredAt,
     int hostMonotonicUs,
   ) {}
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async => _listeners.clear();
   @override
   Future<void> refreshInputs() async {}
   @override

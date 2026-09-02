@@ -13,6 +13,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'network/lsl_marker_transport.dart';
 import 'network/marker_transport.dart';
 import 'ring/ring_controller.dart';
+import 'ring/signal_processing.dart';
 import 'ring/telemetry_models.dart';
 import 'session/peripheral_recorder.dart';
 import 'storage/marker_store.dart';
@@ -51,27 +52,77 @@ class UnifiedAcquisitionApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xff2563eb),
+      seedColor: const Color(0xff0f766e),
       brightness: Brightness.light,
+    ).copyWith(
+      primary: const Color(0xff0f766e),
+      secondary: const Color(0xff2563eb),
+      tertiary: const Color(0xffe87939),
+      surface: const Color(0xffffffff),
+      surfaceContainerLowest: const Color(0xfff7faf9),
+      surfaceContainer: const Color(0xffedf4f2),
     );
     return MaterialApp(
-      title: 'Unified Research Acquisition',
+      title: 'Sakshi Acquire',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: scheme,
-        scaffoldBackgroundColor: const Color(0xfff6f7f9),
+        scaffoldBackgroundColor: const Color(0xfff3f7f6),
+        visualDensity: VisualDensity.standard,
+        textTheme: ThemeData.light().textTheme.apply(
+              bodyColor: const Color(0xff172b2a),
+              displayColor: const Color(0xff102321),
+            ),
+        appBarTheme: const AppBarTheme(
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          centerTitle: false,
+          backgroundColor: Color(0xfff3f7f6),
+          foregroundColor: Color(0xff102321),
+          titleTextStyle: TextStyle(
+            color: Color(0xff102321),
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.2,
+          ),
+        ),
         cardTheme: CardThemeData(
           elevation: 0,
           color: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: Colors.black.withAlpha(15)),
+            borderRadius: BorderRadius.circular(18),
+            side: const BorderSide(color: Color(0xffdce8e5)),
           ),
         ),
         inputDecorationTheme: const InputDecorationTheme(
-          border: OutlineInputBorder(),
-          isDense: true,
+          filled: true,
+          fillColor: Color(0xfff7faf9),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Color(0xffcbdad6)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12)),
+            borderSide: BorderSide(color: Color(0xffcbdad6)),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 46),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 46),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
         ),
       ),
       home: const ScannerScreen(),
@@ -103,6 +154,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
     _peripherals = createPeripheralRecorder(onChange: _onSetupDeviceChanged);
     _loadStorageTarget();
     _requestPlatformPermissions();
+    // Populate the selector immediately. On browsers this call must remain
+    // user-initiated, because getUserMedia is gated by a click/tap.
+    if (!kIsWeb) _peripherals.refreshInputs();
   }
 
   void _onSetupDeviceChanged() {
@@ -122,6 +176,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
         Permission.locationWhenInUse,
+        Permission.microphone,
       ].request();
     }
   }
@@ -249,6 +304,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   void dispose() {
     _stopScan();
     _ring.removeListener(_onSetupDeviceChanged);
+    _peripherals.removeChangeListener(_onSetupDeviceChanged);
     _ring.dispose();
     _peripherals.dispose();
     super.dispose();
@@ -409,33 +465,39 @@ class _ScannerPanel extends StatelessWidget {
               ),
             _DeviceSetupTile(
               icon: Icons.mic,
-              title: 'Laptop / microphone audio',
+              title: 'Laptop / mobile microphone',
               status: recorder.status,
-              connected: recorder.status.toLowerCase().contains('connected'),
-              primaryLabel: 'Connect microphone',
+              connected: recorder.inputs.isNotEmpty ||
+                  recorder.status.toLowerCase().contains('default microphone'),
+              primaryLabel: kIsWeb ? 'Allow microphone' : 'Find microphones',
               onPrimary: recorder.refreshInputs,
               onDisconnect: recorder.disconnectInput,
             ),
-            if (recorder.inputs.isNotEmpty)
-              DropdownButtonFormField<String>(
-                initialValue: recorder.selectedInputId ?? '',
-                decoration: const InputDecoration(labelText: 'Audio input'),
-                items: [
-                  const DropdownMenuItem(
-                    value: '',
-                    child: Text('System default'),
-                  ),
-                  ...recorder.inputs.map(
-                    (input) => DropdownMenuItem(
-                      value: input.id,
-                      child: Text(input.label),
-                    ),
-                  ),
-                ],
-                onChanged: (value) => recorder.selectInput(
-                  value == null || value.isEmpty ? null : value,
-                ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              key: ValueKey(recorder.selectedInputId),
+              initialValue: recorder.selectedInputId ?? '',
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Audio input',
+                helperText: 'Recorded as 48 kHz mono WAV',
               ),
+              items: [
+                const DropdownMenuItem(
+                  value: '',
+                  child: Text('System default microphone'),
+                ),
+                ...recorder.inputs.map(
+                  (input) => DropdownMenuItem(
+                    value: input.id,
+                    child: Text(input.label, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ],
+              onChanged: (value) => recorder.selectInput(
+                value == null || value.isEmpty ? null : value,
+              ),
+            ),
             const SizedBox(height: 8),
             _InfoLine(
               icon: Icons.folder_outlined,
@@ -678,6 +740,9 @@ class _CollectorScreenState extends State<CollectorScreen> {
     _ownsRing = widget.sharedRing == null;
     _peripherals = widget.sharedPeripheral ??
         createPeripheralRecorder(onChange: _onPeripheralChanged);
+    if (!_ownsPeripheral) {
+      _peripherals.addChangeListener(_onPeripheralChanged);
+    }
     _ring = widget.sharedRing ?? RingController();
     _ring.onSample = _handleRingSample;
     _ring.addListener(_onPeripheralChanged);
@@ -2076,6 +2141,9 @@ class _CollectorScreenState extends State<CollectorScreen> {
     _markerTransport.dispose();
     _lslTransport.dispose();
     _ring.removeListener(_onPeripheralChanged);
+    if (!_ownsPeripheral) {
+      _peripherals.removeChangeListener(_onPeripheralChanged);
+    }
     _ring.onSample = null;
     if (_ownsRing) _ring.dispose();
     if (_ownsPeripheral) _peripherals.dispose();
@@ -2305,7 +2373,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
                     recorder: _peripherals,
                     recording: _recording,
                     ringAudioEnabled: _collectRingAudio,
-                    onRingAudioChanged: _streaming
+                    onRingAudioChanged: _recording
                         ? null
                         : (value) => setState(() => _collectRingAudio = value),
                   ),
@@ -2320,7 +2388,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
                     body: ListView(
                       padding: const EdgeInsets.all(12),
                       children: [
-                        SizedBox(height: 540, child: peripherals),
+                        peripherals,
                         const SizedBox(height: 12),
                         SizedBox(height: 420, child: overview),
                         const SizedBox(height: 8),
@@ -2341,7 +2409,7 @@ class _CollectorScreenState extends State<CollectorScreen> {
                         child: ListView(
                           padding: EdgeInsets.zero,
                           children: [
-                            SizedBox(height: 540, child: peripherals),
+                            peripherals,
                             const SizedBox(height: 10),
                             SizedBox(height: 230, child: overview),
                             const SizedBox(height: 10),
@@ -2356,6 +2424,29 @@ class _CollectorScreenState extends State<CollectorScreen> {
             ),
           ),
         ),
+        floatingActionButton: compactLayout && readyForAcquisition
+            ? FloatingActionButton.extended(
+                onPressed: _disconnecting
+                    ? null
+                    : (_streaming ? _toggleRecording : _toggleStream),
+                backgroundColor: _recording
+                    ? Theme.of(context).colorScheme.errorContainer
+                    : null,
+                foregroundColor: _recording
+                    ? Theme.of(context).colorScheme.onErrorContainer
+                    : null,
+                icon: Icon(_recording
+                    ? Icons.stop_rounded
+                    : _streaming
+                        ? Icons.fiber_manual_record
+                        : Icons.play_arrow_rounded),
+                label: Text(_recording
+                    ? 'Stop · ${_elapsedText(_recordStopwatch)}'
+                    : _streaming
+                        ? 'Record WAV + data'
+                        : 'Start acquisition'),
+              )
+            : null,
       ),
     );
   }
@@ -2383,17 +2474,47 @@ class _PeripheralPanel extends StatelessWidget {
     final deviceAudio = ring.audioFeatures;
     final ppgMetrics = _PpgMetrics.fromSamples(ppg);
     final amplitude = ((recorder.amplitudeDb + 60) / 60).clamp(0.0, 1.0);
+    final microphonePicker = DropdownButtonFormField<String>(
+      key: ValueKey(recorder.selectedInputId),
+      initialValue: recorder.selectedInputId ?? '',
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Laptop / mobile microphone',
+        helperText: 'Saved as 48 kHz mono WAV',
+        prefixIcon: Icon(Icons.mic_outlined),
+      ),
+      items: [
+        const DropdownMenuItem<String>(
+          value: '',
+          child: Text('System default microphone'),
+        ),
+        ...recorder.inputs.map(
+          (input) => DropdownMenuItem<String>(
+            value: input.id,
+            child: Text(input.label, overflow: TextOverflow.ellipsis),
+          ),
+        ),
+      ],
+      onChanged: recording
+          ? null
+          : (value) => recorder.selectInput(
+                value == null || value.isEmpty ? null : value,
+              ),
+    );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.spaceBetween,
               children: [
-                Text('Sakshi Ring + Microphone',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const Spacer(),
+                Text('Ring & audio capture',
+                    style: Theme.of(context).textTheme.titleLarge),
                 Chip(
                   avatar: Icon(
                     ring.isConnected
@@ -2407,68 +2528,74 @@ class _PeripheralPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed:
-                      ring.isConnecting || ring.isConnected ? null : ring.scan,
-                  icon: ring.isScanning
-                      ? const SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.radar),
-                  label: Text(ring.isScanning ? 'Stop scan' : 'Scan ring'),
-                ),
-                const SizedBox(width: 8),
-                if (ring.isConnected)
-                  OutlinedButton(
-                    onPressed: recording ? null : ring.disconnect,
-                    child: const Text('Disconnect'),
-                  ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    key: ValueKey(recorder.selectedInputId),
-                    initialValue: recorder.selectedInputId ?? '',
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Microphone input',
-                      prefixIcon: Icon(Icons.mic_outlined),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 680;
+                final ringButtons = Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: ring.isConnecting || ring.isConnected
+                          ? null
+                          : ring.scan,
+                      icon: ring.isScanning
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.radar),
+                      label:
+                          Text(ring.isScanning ? 'Stop scan' : 'Connect ring'),
                     ),
-                    items: [
-                      const DropdownMenuItem<String>(
-                        value: '',
-                        child: Text('System default (wired/wireless)'),
+                    if (ring.isConnected)
+                      OutlinedButton.icon(
+                        onPressed: recording ? null : ring.disconnect,
+                        icon: const Icon(Icons.bluetooth_disabled, size: 18),
+                        label: const Text('Disconnect ring'),
                       ),
-                      ...recorder.inputs.map(
-                        (input) => DropdownMenuItem<String>(
-                          value: input.id,
-                          child: Text(
-                            input.label,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
+                  ],
+                );
+                final audioActions = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton.filledTonal(
+                      tooltip: 'Find microphones and request permission',
+                      onPressed: recording ? null : recorder.refreshInputs,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton.outlined(
+                      tooltip: 'Disconnect microphone',
+                      onPressed: recording ? null : recorder.disconnectInput,
+                      icon: const Icon(Icons.mic_off_outlined),
+                    ),
+                  ],
+                );
+                if (compact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ringButtons,
+                      const SizedBox(height: 12),
+                      microphonePicker,
+                      const SizedBox(height: 6),
+                      Align(
+                          alignment: Alignment.centerRight,
+                          child: audioActions),
                     ],
-                    onChanged: recording
-                        ? null
-                        : (value) => recorder.selectInput(
-                              value == null || value.isEmpty ? null : value,
-                            ),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Refresh microphone inputs',
-                  onPressed: recording ? null : recorder.refreshInputs,
-                  icon: const Icon(Icons.refresh),
-                ),
-                IconButton(
-                  tooltip: 'Disconnect microphone',
-                  onPressed: recording ? null : recorder.disconnectInput,
-                  icon: const Icon(Icons.mic_off_outlined),
-                ),
-              ],
+                  );
+                }
+                return Row(
+                  children: [
+                    ringButtons,
+                    const SizedBox(width: 12),
+                    Expanded(child: microphonePicker),
+                    const SizedBox(width: 8),
+                    audioActions,
+                  ],
+                );
+              },
             ),
             if (ring.devices.isNotEmpty && !ring.isConnected)
               SizedBox(
@@ -2492,66 +2619,92 @@ class _PeripheralPanel extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.watch_outlined),
-              title: const Text('SakshiSense onboard audio'),
+              title: const Text('SakshiSense sound features'),
               subtitle: Text(ringAudioEnabled
-                  ? 'Recording separately to ring_audio.csv'
-                  : 'Disabled by default'),
+                  ? 'RMS, peak and zero crossings saved to CSV'
+                  : 'Off · the ring does not transmit playable audio'),
               value: ringAudioEnabled,
               onChanged: onRingAudioChanged,
             ),
-            SizedBox(
-              height: 118,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _MiniSignal(
-                      label: 'Ring PPG raw • ${ring.packets} packets',
-                      values: ppg.map((item) => item.ir.toDouble()).toList(),
-                      color: const Color(0xffdc2626),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 680;
+                final width = compact
+                    ? constraints.maxWidth
+                    : (constraints.maxWidth - 16) / 3;
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    SizedBox(
+                      width: width,
+                      height: 118,
+                      child: _MiniSignal(
+                        label: 'Ring PPG raw • ${ring.packets} packets',
+                        values: ppg
+                            .skip(max(0, ppg.length - 500))
+                            .map((item) => item.ir.toDouble())
+                            .toList(),
+                        color: const Color(0xffdc2626),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _MiniSignal(
-                      label: 'Ring accelerometer X raw',
-                      values: imu.map((item) => item.ax.toDouble()).toList(),
-                      color: const Color(0xff2563eb),
+                    SizedBox(
+                      width: width,
+                      height: 118,
+                      child: _MiniSignal(
+                        label: 'Ring accelerometer X raw',
+                        values: imu.map((item) => item.ax.toDouble()).toList(),
+                        color: const Color(0xff2563eb),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _MiniSignal(
-                      label:
-                          'Laptop/mobile mic • ${recorder.amplitudeDb.toStringAsFixed(1)} dBFS',
-                      values: recorder.amplitudeHistory,
-                      color: const Color(0xff16a34a),
+                    SizedBox(
+                      width: width,
+                      height: 118,
+                      child: _MiniSignal(
+                        label:
+                            'Laptop/mobile mic • ${recorder.amplitudeDb.toStringAsFixed(1)} dBFS',
+                        values: recorder.amplitudeHistory,
+                        color: const Color(0xff16a34a),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 8),
-            SizedBox(
-              height: 76,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _MiniSignal(
-                      label: ringAudioEnabled
-                          ? 'SakshiSense audio • ${deviceAudio.length} packets'
-                          : 'SakshiSense audio • disabled',
-                      values: ringAudioEnabled
-                          ? deviceAudio
-                              .map((item) => item.rms.toDouble())
-                              .toList()
-                          : const [],
-                      color: const Color(0xfff97316),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 680;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    SizedBox(
+                      width: compact
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 10) * .38,
+                      height: 86,
+                      child: _MiniSignal(
+                        label: ringAudioEnabled
+                            ? 'Ring sound features • ${deviceAudio.length} packets'
+                            : 'Ring sound features • off',
+                        values: ringAudioEnabled
+                            ? deviceAudio
+                                .map((item) => item.rms.toDouble())
+                                .toList()
+                            : const [],
+                        color: const Color(0xfff97316),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(child: _PpgMetricsCard(metrics: ppgMetrics)),
-                ],
-              ),
+                    SizedBox(
+                      width: compact
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 10) * .62,
+                      child: _PpgMetricsCard(metrics: ppgMetrics),
+                    ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 4),
             Wrap(
@@ -2612,85 +2765,32 @@ class _PeripheralPanel extends StatelessWidget {
 }
 
 class _PpgMetrics {
-  const _PpgMetrics(
-      {this.hr, this.spo2, this.rmssd, required this.sampleCount});
+  const _PpgMetrics({
+    this.hr,
+    this.spo2,
+    this.rmssd,
+    required this.sampleCount,
+    this.quality = 0,
+    this.qualityLabel = 'No signal',
+  });
 
   final double? hr;
   final double? spo2;
   final double? rmssd;
   final int sampleCount;
+  final int quality;
+  final String qualityLabel;
 
   factory _PpgMetrics.fromSamples(List<PpgSample> allSamples) {
-    if (allSamples.isEmpty) return const _PpgMetrics(sampleCount: 0);
-    final newest = allSamples.last.deviceMs;
-    final samples = allSamples
-        .where((sample) => newest - sample.deviceMs <= 30000)
-        .toList(growable: false);
-    if (samples.length < 8) {
-      return _PpgMetrics(sampleCount: samples.length);
-    }
-    final ir = samples.map((sample) => sample.ir.toDouble()).toList();
-    final red = samples.map((sample) => sample.red.toDouble()).toList();
-    final irMean = _mean(ir);
-    final redMean = _mean(red);
-    final irAc = _rmsAround(ir, irMean);
-    final redAc = _rmsAround(red, redMean);
-    final ratio = (redAc / max(1, redMean)) / (irAc / max(1, irMean));
-    final spo2 =
-        ratio.isFinite ? (110 - 25 * ratio).clamp(70, 100).toDouble() : null;
-
-    final range = ir.reduce(max) - ir.reduce(min);
-    final threshold = ir.reduce(min) + range * 0.55;
-    final peaks = <int>[];
-    for (var i = 1; i < ir.length - 1; i++) {
-      final enoughSeparation = peaks.isEmpty ||
-          samples[i].deviceMs - samples[peaks.last].deviceMs >= 250;
-      if (enoughSeparation &&
-          ir[i] >= threshold &&
-          ir[i] >= ir[i - 1] &&
-          ir[i] > ir[i + 1]) {
-        peaks.add(i);
-      }
-    }
-    final intervalsMs = <double>[];
-    for (var i = 1; i < peaks.length; i++) {
-      final interval =
-          (samples[peaks[i]].deviceMs - samples[peaks[i - 1]].deviceMs)
-              .toDouble();
-      if (interval >= 300 && interval <= 2000) intervalsMs.add(interval);
-    }
-    if (intervalsMs.isEmpty) {
-      return _PpgMetrics(sampleCount: samples.length, spo2: spo2);
-    }
-    final meanInterval = _mean(intervalsMs);
-    final hr = 60000 / meanInterval;
-    double? rmssd;
-    if (intervalsMs.length >= 2) {
-      var sum = 0.0;
-      for (var i = 1; i < intervalsMs.length; i++) {
-        final difference = intervalsMs[i] - intervalsMs[i - 1];
-        sum += difference * difference;
-      }
-      rmssd = sqrt(sum / (intervalsMs.length - 1));
-    }
+    final result = RingSignalProcessing.analyze(allSamples);
     return _PpgMetrics(
-      sampleCount: samples.length,
-      hr: hr.isFinite ? hr : null,
-      spo2: spo2,
-      rmssd: rmssd,
+      sampleCount: allSamples.length,
+      hr: result.heartRate,
+      spo2: result.spo2,
+      rmssd: result.rmssd,
+      quality: result.quality,
+      qualityLabel: result.qualityLabel,
     );
-  }
-
-  static double _mean(List<double> values) =>
-      values.isEmpty ? 0 : values.reduce((a, b) => a + b) / values.length;
-
-  static double _rmsAround(List<double> values, double mean) {
-    if (values.isEmpty) return 0;
-    final sum = values.fold<double>(0, (total, value) {
-      final delta = value - mean;
-      return total + delta * delta;
-    });
-    return sqrt(sum / values.length);
   }
 }
 
@@ -2715,6 +2815,10 @@ class _PpgMetricsCard extends StatelessWidget {
         spacing: 16,
         runSpacing: 4,
         children: [
+          _MetricValue(
+            label: 'Signal',
+            value: '${metrics.qualityLabel} · ${metrics.quality}%',
+          ),
           _MetricValue(label: 'HR · 30 s', value: value(metrics.hr, ' bpm')),
           _MetricValue(label: 'SpO₂ · 30 s', value: value(metrics.spo2, '%')),
           _MetricValue(

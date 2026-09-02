@@ -11,7 +11,8 @@ void main() {
     expect(find.text('Acquisition Setup'), findsOneWidget);
     expect(find.text('BrainBit EEG'), findsOneWidget);
     expect(find.text('SakshiSense Ring'), findsOneWidget);
-    expect(find.text('Laptop / microphone audio'), findsOneWidget);
+    expect(find.text('Laptop / mobile microphone'), findsOneWidget);
+    expect(find.text('Audio input'), findsOneWidget);
     expect(find.text('Continue with connected devices'), findsOneWidget);
     expect(find.text('Open Demo Session'), findsOneWidget);
   });
@@ -28,6 +29,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Demo BrainBit'), findsOneWidget);
+    expect(find.text('Laptop / mobile microphone'), findsOneWidget);
+    expect(find.text('Start acquisition'), findsOneWidget);
     await tester.tap(find.byTooltip('Open session controls'));
     await tester.pumpAndSettle();
     expect(find.text('Session Control'), findsOneWidget);
