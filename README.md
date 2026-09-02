@@ -81,6 +81,13 @@ flutter build windows --release  # run on Windows
 
 The repository workflows `.github/workflows/build.yml` and `.github/workflows/windows-build.yml` build and upload platform artifacts on their native GitHub runners. For Windows, GitHub Actions builds the release executable, packages a portable ZIP (`unified-acquisition-windows-x64.zip`), and generates a standalone Windows installer (`UnifiedAcquisition-Setup.exe`).
 
+## Public releases
+
+Versioned Android APK, Windows portable ZIP and installer, macOS application
+ZIP, and Web application ZIP downloads are published on the public
+[GitHub Releases page](https://github.com/manasaitech/SakshiSense-UnifiedAcquisition/releases).
+See [CHANGELOG.md](CHANGELOG.md) for release details and hardware limitations.
+
 The deployed web app is protected by a Cloudflare Pages edge login. The
 current session passcode is managed as a Cloudflare secret; use `/__logout` to
 clear an active browser session.

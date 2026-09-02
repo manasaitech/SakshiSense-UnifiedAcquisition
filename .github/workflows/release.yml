@@ -1,0 +1,140 @@
+name: Publish public release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: flutter config --enable-android
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - run: cp build/app/outputs/flutter-apk/app-release.apk build/SakshiSense-UnifiedAcquisition-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: build/SakshiSense-UnifiedAcquisition-Android.apk
+          if-no-files-found: error
+
+  windows:
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Package Windows releases
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/windows/dist
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "build/windows/dist/SakshiSense-UnifiedAcquisition-Windows-x64.zip"
+          if (Get-Command iscc -ErrorAction SilentlyContinue) {
+            iscc windows/installer/installer.iss
+          } elseif (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer/installer.iss
+          } else {
+            throw "Inno Setup compiler not found"
+          }
+          Copy-Item "build/windows/installer/UnifiedAcquisition-Setup.exe" "build/windows/dist/SakshiSense-UnifiedAcquisition-Windows-Setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: build/windows/dist/*
+          if-no-files-found: error
+
+  macos:
+    needs: verify
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter config --enable-macos-desktop
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/brainbit_app.app build/SakshiSense-UnifiedAcquisition-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: build/SakshiSense-UnifiedAcquisition-macOS.zip
+          if-no-files-found: error
+
+  web:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - run: flutter config --enable-web
+      - run: flutter pub get
+      - run: flutter build web --release
+      - name: Package Web release
+        working-directory: build/web
+        run: zip -r ../SakshiSense-UnifiedAcquisition-Web.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: build/SakshiSense-UnifiedAcquisition-Web.zip
+          if-no-files-found: error
+
+  publish:
+    needs: [android, windows, macos, web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: SakshiSense Unified Acquisition ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

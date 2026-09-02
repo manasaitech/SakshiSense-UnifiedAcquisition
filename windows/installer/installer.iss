@@ -1,5 +1,5 @@
 #define MyAppName "SakshiSense Unified Acquisition"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "SakshiSense"
 #define MyAppExeName "brainbit_app.exe"
 
